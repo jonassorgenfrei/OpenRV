@@ -14,7 +14,7 @@ SET(_target
 )
 
 SET(_version
-    "1.1.1p"
+    "1.1.1u"
 )
 
 IF(RV_TARGET_WINDOWS
@@ -44,7 +44,7 @@ SET(_download_url
     "https://www.openssl.org/source/openssl-${_version}.tar.gz"
 )
 SET(_download_hash
-    "3d610fed4f44ce4d4b42849a368d2071"
+    "72f7ba7395f0f0652783ba1089aa0dcc"
 )
 
 SET(_make_command_script
@@ -67,18 +67,37 @@ IF(${RV_OSX_EMULATION})
   LIST(APPEND _make_command --arch=${RV_OSX_EMULATION_ARCH})
 ENDIF()
 
-SET(_crypto_lib_name
-    ${CMAKE_SHARED_LIBRARY_PREFIX}crypto.1.1${CMAKE_SHARED_LIBRARY_SUFFIX}
+IF(RV_TARGET_IS_RHEL9
+   OR RV_TARGET_IS_RHEL8
 )
+  SET(_crypto_lib_name
+      ${CMAKE_SHARED_LIBRARY_PREFIX}crypto${CMAKE_SHARED_LIBRARY_SUFFIX}.1.1
+  )
+
+  SET(_ssl_lib_name
+      ${CMAKE_SHARED_LIBRARY_PREFIX}ssl${CMAKE_SHARED_LIBRARY_SUFFIX}.1.1
+  )
+ELSE()
+  SET(_crypto_lib_name
+      ${CMAKE_SHARED_LIBRARY_PREFIX}crypto.1.1${CMAKE_SHARED_LIBRARY_SUFFIX}
+  )
+  SET(_ssl_lib_name
+      ${CMAKE_SHARED_LIBRARY_PREFIX}ssl.1.1${CMAKE_SHARED_LIBRARY_SUFFIX}
+  )
+ENDIF()
+
 SET(_crypto_lib
-    ${RV_DEPS_OPENSSL_LIB_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}crypto.1.1${CMAKE_SHARED_LIBRARY_SUFFIX}
+    ${RV_DEPS_OPENSSL_LIB_DIR}/${_crypto_lib_name}
 )
-SET(_ssl_lib_name
-    ${CMAKE_SHARED_LIBRARY_PREFIX}ssl.1.1${CMAKE_SHARED_LIBRARY_SUFFIX}
-)
+
 SET(_ssl_lib
-    ${RV_DEPS_OPENSSL_LIB_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}ssl.1.1${CMAKE_SHARED_LIBRARY_SUFFIX}
+    ${RV_DEPS_OPENSSL_LIB_DIR}/${_ssl_lib_name}
 )
+
+# IF(RV_TARGET_IS_RHEL9 OR RV_TARGET_IS_RHEL8) SET(_crypto_lib_name ${CMAKE_SHARED_LIBRARY_PREFIX}crypto${CMAKE_SHARED_LIBRARY_SUFFIX}.1.1 ) SET(_crypto_lib
+# ${RV_DEPS_OPENSSL_LIB_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}crypto${CMAKE_SHARED_LIBRARY_SUFFIX}.1.1 ) SET(_ssl_lib_name
+# ${CMAKE_SHARED_LIBRARY_PREFIX}ssl${CMAKE_SHARED_LIBRARY_SUFFIX}.1.1 ) SET(_ssl_lib
+# ${RV_DEPS_OPENSSL_LIB_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}ssl${CMAKE_SHARED_LIBRARY_SUFFIX}.1.1 ) ENDIF()
 
 EXTERNALPROJECT_ADD(
   ${_target}
@@ -146,6 +165,11 @@ IF(RV_TARGET_WINDOWS)
   ADD_CUSTOM_TARGET(
     ${_target}-stage-target ALL
     DEPENDS ${RV_STAGE_BIN_DIR}/${_crypto_lib_name} ${RV_STAGE_BIN_DIR}/${_ssl_lib_name}
+  )
+ELSEIF(RV_TARGET_IS_RHEL8)
+  # Blank target on RHEL8 Linux to avoid copying RV's OpenSSL files.
+  ADD_CUSTOM_TARGET(
+    ${_target}-stage-target ALL
   )
 ELSE()
   ADD_CUSTOM_COMMAND(

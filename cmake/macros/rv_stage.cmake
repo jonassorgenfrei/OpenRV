@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-#
 # Create & populate a list of all the shared libraries for later testing.
 MACRO(ADD_SHARED_LIBRARY_LIST new_entry)
   LIST(APPEND _shared_libraries "${new_entry}")
@@ -32,6 +31,7 @@ ADD_CUSTOM_TARGET(installed_movie_formats)
 ADD_CUSTOM_TARGET(image_formats)
 ADD_CUSTOM_TARGET(installed_image_formats)
 ADD_CUSTOM_TARGET(oiio_plugins)
+ADD_CUSTOM_TARGET(output_plugins)
 
 FUNCTION(rv_stage)
   SET(flags
@@ -390,17 +390,26 @@ FUNCTION(rv_stage)
     SET(_package_file
         PACKAGE
     )
-    FILE(
-      GLOB _files
-      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-      *
-    )
+
+    IF(NOT arg_FILES)
+      FILE(
+        GLOB_RECURSE _files
+        RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+        CONFIGURE_DEPENDS *
+      )
+    ELSE()
+      SET(_files
+          ${arg_FILES}
+      )
+    ENDIF()
 
     LIST(REMOVE_ITEM _files Makefile CMakeLists.txt ${_package_file})
 
     IF(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${_package_file})
       MESSAGE(FATAL_ERROR "Couldn't find expected package descriptor file: '${_package_file}'")
     ENDIF()
+
+    SET_DIRECTORY_PROPERTIES(PROPERTIES CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${_package_file})
 
     EXECUTE_PROCESS(
       COMMAND bash -c "cat ${_package_file} | grep version: | grep --only-matching -e '[0-9.]*'"
@@ -428,18 +437,31 @@ FUNCTION(rv_stage)
         CACHE INTERNAL ""
     )
 
-    LIST(APPEND INSTALLED_RV_PACKAGE_LIST "${RV_STAGE_PLUGINS_PACKAGES_DIR}/${arg_TARGET}-${_pkg_version}.rvpkg")
-    LIST(REMOVE_DUPLICATES INSTALLED_RV_PACKAGE_LIST)
-    SET(INSTALLED_RV_PACKAGES
-        ${INSTALLED_RV_PACKAGE_LIST}
-        CACHE INTERNAL ""
+    # Generate a file to store the list of package files
+    SET(_temp_file
+        "${CMAKE_CURRENT_BINARY_DIR}/pkgfilelist.txt"
     )
 
+    # Remove the file if it exists
+    FILE(REMOVE ${_temp_file})
+
+    # For each package file in the list, append it to the file
+    FOREACH(
+      file IN
+      LISTS _files _package_file
+    )
+      FILE(
+        APPEND ${_temp_file}
+        "${file}\n"
+      )
+    ENDFOREACH()
+
+    # Create the package zip file
     ADD_CUSTOM_COMMAND(
       COMMENT "Creating ${_package_filename} ..."
       OUTPUT ${_package_filename}
-      DEPENDS ${_files} ${_package_file}
-      COMMAND zip -v -J ${_package_filename} ${_files} ${_package_file}
+      DEPENDS ${_temp_file} ${_files} ${_package_file}
+      COMMAND ${CMAKE_COMMAND} -E tar "cfv" ${_package_filename} --format=zip --files-from=${_temp_file}
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
@@ -538,6 +560,35 @@ FUNCTION(rv_stage)
 
     ADD_SHARED_LIBRARY_LIST(${arg_TARGET})
 
+  ELSEIF(${arg_TYPE} STREQUAL "OUTPUT_PLUGIN")
+    GET_TARGET_PROPERTY(_native_target_type ${arg_TARGET} TYPE)
+    IF(NOT _native_target_type STREQUAL "SHARED_LIBRARY")
+      MESSAGE(FATAL_ERROR "\"${arg_TARGET}\" ${arg_TYPE} should be a SHARED_LIBRARY, not a ${_native_target_type}")
+    ENDIF()
+    SET_TARGET_PROPERTIES(
+      ${arg_TARGET}
+      PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${RV_STAGE_PLUGINS_OUTPUT_DIR}"
+                 PREFIX ""
+                 C_VISIBILITY_PRESET default
+                 CXX_VISIBILITY_PRESET default
+    )
+    IF(RV_TARGET_WINDOWS)
+      FOREACH(
+        OUTPUTCONFIG
+        ${CMAKE_CONFIGURATION_TYPES}
+      )
+        STRING(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG)
+        SET_TARGET_PROPERTIES(
+          ${arg_TARGET}
+          PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${RV_STAGE_PLUGINS_OUTPUT_DIR}"
+        )
+      ENDFOREACH()
+    ENDIF()
+
+    ADD_DEPENDENCIES(output_plugins ${arg_TARGET})
+
+    ADD_SHARED_LIBRARY_LIST(${arg_TARGET})
+
   ELSEIF(${arg_TYPE} STREQUAL "EXECUTABLE")
     GET_TARGET_PROPERTY(_native_target_type ${arg_TARGET} TYPE)
     IF(NOT _native_target_type STREQUAL "EXECUTABLE")
@@ -606,6 +657,7 @@ FUNCTION(rv_stage)
       movie_formats
       image_formats
       oiio_plugins
+      output_plugins
       dependencies
     )
 
@@ -651,6 +703,7 @@ FUNCTION(rv_stage)
       image_formats
       installed_image_formats
       oiio_plugins
+      output_plugins
       shared_libraries
       executables
       executables_with_plugins

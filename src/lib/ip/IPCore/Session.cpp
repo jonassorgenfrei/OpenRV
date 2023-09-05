@@ -70,6 +70,11 @@
 // Flush the audio cache when stopping the playback when ON (default=OFF)
 static ENVVAR_BOOL( evFlushAudioCacheWhenStoppingPlayback, "RV_FLUSH_AUDIO_CACHE_WHEN_STOPPING_PLAYBACK", false );
 
+// Disable automatic garbage collection during playback to make sure the
+// playback doesn't get interrupted which could cause skipped frames.
+// The garbage collection will resume as soon as the playback is stopped.
+static ENVVAR_BOOL( evDisableGarbageCollectionDuringPlayback, "RV_DISABLE_GARBAGE_COLLECTION_DURING_PLAYBACK", true );
+
 template <typename T>
 inline T mod( const T &a, const T &by )
 {
@@ -364,6 +369,7 @@ Session::Session(IPGraph* graph)
       m_syncLastTime(0),
       m_syncPredictionEnabled(true),
       m_syncTargetRefresh(-1.0),
+      m_preFirstNonEmptyRender(false),
       m_postFirstNonEmptyRender(false),
       m_batchMode(false),
       m_nextVSyncTime(0.0),
@@ -1880,9 +1886,12 @@ Session::play_v2(string &eventData)
     userGenericEvent("before-play-start", eventData);
     m_beforePlayStartSignal(eventData);
 
-    // Disable automatic garbage collection during playback to make sure it
-    // doesn't get interrupted.
-    Mu::GarbageCollector::disable();
+    // Disable automatic garbage collection during playback to make sure the
+    // playback doesn't get interrupted which could cause skipped frames.
+    if (evDisableGarbageCollectionDuringPlayback.getValue())
+    {
+        Mu::GarbageCollector::disable();
+    }
 
     m_syncLastTime = 0.0;
     m_timer.start();
@@ -1967,9 +1976,12 @@ Session::play_v1(string &eventData)
     userGenericEvent("before-play-start", eventData);
     m_beforePlayStartSignal(eventData);
 
-    // Disable automatic garbage collection during playback to make sure it
-    // doesn't get interrupted.
-    Mu::GarbageCollector::disable();
+    // Disable automatic garbage collection during playback to make sure the
+    // playback doesn't get interrupted which could cause skipped frames.
+    if (evDisableGarbageCollectionDuringPlayback.getValue())
+    {
+        Mu::GarbageCollector::disable();
+    }
 
     m_syncLastTime = 0.0;
     m_timer.start();
@@ -2093,7 +2105,10 @@ Session::stop(string eventData)
     m_playStopSignal(eventData);
 
     // Re-enable automatic garbage collection after playback.
-    Mu::GarbageCollector::enable();
+    if (evDisableGarbageCollectionDuringPlayback.getValue())
+    {
+        Mu::GarbageCollector::enable();
+    }
 
     if (debugPlayback)
     {
@@ -2959,7 +2974,12 @@ Session::evaluateForDisplay()
 
         if (!m_postFirstNonEmptyRender && currentFrameState() == OkStatus)
         {
-            m_postFirstNonEmptyRender = true;
+            // In progressive source loading, we need to wait until the first load is actually completed
+            static const bool progressiveSourceLoading = Application::optionValue<bool>("progressiveSourceLoading", false);
+            if (!progressiveSourceLoading)
+            {
+                m_postFirstNonEmptyRender = true;
+            }
         }
     }
     catch (const std::exception& exc)
@@ -4487,6 +4507,15 @@ Session::userGenericEvent(const string& eventName,
     GenericStringEvent event(eventName, this, contents, senderName);
     sendEvent(event);
     m_currentSession = s;
+
+    if (eventName == "before-progressive-loading") {
+        m_preFirstNonEmptyRender = true;
+    }
+
+    if (m_preFirstNonEmptyRender && !m_postFirstNonEmptyRender && eventName =="after-progressive-loading"){
+        m_postFirstNonEmptyRender = true;
+    } 
+        
     return event.returnContent();
 }
 
