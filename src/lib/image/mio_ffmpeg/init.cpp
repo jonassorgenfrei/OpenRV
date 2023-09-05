@@ -31,7 +31,7 @@ using namespace boost;
 //   actually have that license.
 //
 
-static const char* disallowedCodecsArray[] = {
+/*static const char* disallowedCodecsArray[] = {
     "ac3",
     "hevc",
     "mpeg2video",
@@ -42,7 +42,8 @@ static const char* disallowedCodecsArray[] = {
     "svq1",
     "svq3",
     0 };
-
+*/
+static const char* disallowedCodecsArray[] = {0};
 extern "C" {
 
 #ifdef PLATFORM_WINDOWS
